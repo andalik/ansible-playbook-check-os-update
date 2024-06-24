@@ -1,0 +1,84 @@
+---
+- name: Verificar atualizações disponíveis em múltiplos sistemas operacionais
+  hosts: all
+  gather_facts: yes
+  become: yes
+
+  vars:
+    update_commands:
+      Debian:
+        update_cache: "apt-get update"
+        list_updates: "apt list --upgradable"
+      Ubuntu:
+        update_cache: "apt-get update"
+        list_updates: "apt list --upgradable"
+      RedHat:
+        update_cache: "yum check-update"
+        list_updates: "yum list updates"
+      CentOS:
+        update_cache: "yum check-update"
+        list_updates: "yum list updates"
+      Fedora:
+        update_cache: "dnf check-update"
+        list_updates: "dnf list updates"
+      Suse:
+        update_cache: "zypper refresh"
+        list_updates: "zypper list-updates"
+      Archlinux:
+        update_cache: "pacman -Sy"
+        list_updates: "pacman -Qu"
+      Alpine:
+        update_cache: "apk update"
+        list_updates: "apk list --upgradable"
+      FreeBSD:
+        update_cache: "pkg update"
+        list_updates: "pkg version -vL="
+
+  tasks:
+    - name: Definir variáveis específicas do sistema operacional
+      set_fact:
+        os_family: "{{ ansible_distribution }}"
+        update_cache_cmd: "{{ update_commands[ansible_distribution]['update_cache'] | default('') }}"
+        list_updates_cmd: "{{ update_commands[ansible_distribution]['list_updates'] | default('') }}"
+
+    - name: Atualizar cache de pacotes (sistemas Unix/Linux)
+      command: "{{ update_cache_cmd }}"
+      changed_when: false
+      when: update_cache_cmd != '' and ansible_os_family != 'Windows'
+
+    - name: Verificar atualizações disponíveis (sistemas Unix/Linux)
+      command: "{{ list_updates_cmd }}"
+      register: updates_output
+      changed_when: false
+      when: list_updates_cmd != '' and ansible_os_family != 'Windows'
+
+    - name: Exibir atualizações disponíveis (sistemas Unix/Linux)
+      debug:
+        msg: "{{ updates_output.stdout_lines }}"
+      when: list_updates_cmd != '' and ansible_os_family != 'Windows'
+
+    - name: Verificar atualizações disponíveis (Windows)
+      win_updates:
+        state: searched
+        category_names:
+          - SecurityUpdates
+          - CriticalUpdates
+          - UpdateRollups
+          - Updates
+      register: win_updates
+      when: ansible_os_family == 'Windows'
+
+    - name: Exibir atualizações disponíveis (Windows)
+      debug:
+        msg: "{{ win_updates.updates | map(attribute='title') | list }}"
+      when: ansible_os_family == 'Windows'
+
+    - name: Resumo das atualizações
+      debug:
+        msg: |
+          Sistema Operacional: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          Atualizações disponíveis: {{ 
+            (updates_output.stdout_lines | length) if (ansible_os_family != 'Windows' and updates_output is defined) 
+            else (win_updates.updates | length) if (ansible_os_family == 'Windows' and win_updates is defined) 
+            else 'Não foi possível determinar' 
+          }}
